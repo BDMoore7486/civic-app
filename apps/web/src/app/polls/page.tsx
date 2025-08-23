@@ -1,63 +1,62 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+
+type Counts = { Yes: number; No: number; Unsure: number };
 
 export default function PollsPage() {
   const [choice, setChoice] = useState<string | null>(null);
-  const [counts, setCounts] = useState<{ Yes: number; No: number; Unsure: number }>({
-    Yes: 0,
-    No: 0,
-    Unsure: 0,
-  });
-
+  const [counts, setCounts] = useState<Counts | null>(null);
+  const [loading, setLoading] = useState(false);
   const question = "Do you support the new parks initiative?";
 
-  // Load current poll results
-  useEffect(() => {
-    fetch("/api/polls")
-      .then((res) => res.json())
-      .then((data) => setCounts(data.counts));
-  }, []);
-
-  // When user selects a choice
-  async function handleVote(opt: string) {
-    setChoice(opt);
-    const res = await fetch("/api/polls", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ choice: opt }),
-    });
+  async function loadCounts() {
+    const res = await fetch("/polls", { cache: "no-store" });
     const data = await res.json();
     setCounts(data.counts);
   }
 
+  useEffect(() => {
+    loadCounts();
+  }, []);
+
+  async function vote(opt: string) {
+    setLoading(true);
+    setChoice(opt);
+    try {
+      const res = await fetch("/polls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ choice: opt }),
+      });
+      const data = await res.json();
+      setCounts(data.counts);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div
-      style={{
-        maxWidth: 720,
-        margin: "40px auto",
-        padding: 16,
-        border: "1px solid #eee",
-        borderRadius: 10,
-      }}
-    >
+    <div style={{ maxWidth: 720, margin: "40px auto", padding: 16, border: "1px solid #eee", borderRadius: 10 }}>
       <h2 style={{ marginTop: 0, marginBottom: 12 }}>{question}</h2>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
         {["Yes", "No", "Unsure"].map((opt) => (
           <button
             key={opt}
-            onClick={() => handleVote(opt)}
+            onClick={() => vote(opt)}
+            disabled={loading}
             style={{
               padding: "10px 14px",
               borderRadius: 8,
               border: "1px solid #ccc",
               background: choice === opt ? "#e3f2fd" : "#fff",
               color: choice === opt ? "#0366d6" : "#111",
-              cursor: "pointer",
+              cursor: loading ? "not-allowed" : "pointer",
+              opacity: loading ? 0.7 : 1,
             }}
           >
-            {opt} ({counts[opt as keyof typeof counts]})
+            {opt}
           </button>
         ))}
       </div>
@@ -67,6 +66,17 @@ export default function PollsPage() {
           You chose: <strong>{choice}</strong>
         </p>
       )}
+
+      <div style={{ marginTop: 16, fontSize: 14 }}>
+        <strong>Current totals</strong>
+        <div>Yes: {counts?.Yes ?? 0}</div>
+        <div>No: {counts?.No ?? 0}</div>
+        <div>Unsure: {counts?.Unsure ?? 0}</div>
+      </div>
+
+      <p style={{ fontSize: 12, color: "#777", marginTop: 16 }}>
+        (This page fetches `/polls` for counts and posts votes to the same path.)
+      </p>
     </div>
   );
 }
