@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { redis } from "@/src/lib/redis"; // path from /src/app/polls to /src/lib/redis.ts
+import { redis } from "../../lib/redis"; // relative path from /app/polls to /lib/redis
 
 const POLL_KEY = "poll:parks";
 const VALID = new Set(["Yes", "No", "Unsure"]);
