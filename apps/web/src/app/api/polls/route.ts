@@ -1,6 +1,6 @@
 // apps/web/src/app/api/polls/route.ts
 import { NextResponse } from "next/server";
-import { redis } from "../../lib/redis";
+import { redis } from "../../../lib/redis";
 
 const POLL_KEY = "poll:parks";
 const VALID = new Set(["Yes", "No", "Unsure"]);
