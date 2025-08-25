@@ -1,15 +1,16 @@
-// apps/web/src/app/api/polls/route.ts
+// src/app/api/polls/route.ts
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { redis } from "../../../lib/redis";
+import { redis } from "../../lib/redis";
+
+type Counts = { Yes: number; No: number; Unsure: number };
 
 const POLL_KEY = "poll:parks";
-const VALID = new Set(["Yes", "No", "Unsure"]);
-const VOTE_COOKIE = "parks_voted";
+const VALID = new Set<keyof Counts>(["Yes", "No", "Unsure"]);
 
-// Normalize Redis values -> numbers
-function normalizeCounts(c: any) {
-  const base = { Yes: 0, No: 0, Unsure: 0 };
+// Upstash Redis hgetall returns `Record<string, string> | null`.
+// Convert that to our strongly-typed Counts object.
+function normalizeCounts(c: Record<string, string> | null): Counts {
+  const base: Counts = { Yes: 0, No: 0, Unsure: 0 };
   if (!c) return base;
   return {
     Yes: Number(c.Yes ?? 0),
@@ -19,37 +20,39 @@ function normalizeCounts(c: any) {
 }
 
 export async function GET() {
-  const counts = normalizeCounts(await redis.hgetall(POLL_KEY));
-  return NextResponse.json(counts);
+  try {
+    const raw = await redis.hgetall<Record<string, string> | null>(POLL_KEY);
+    const counts = normalizeCounts(raw);
+    return NextResponse.json(counts);
+  } catch (err) {
+    return NextResponse.json(
+      { error: "Failed to load counts" },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(req: Request) {
-  const { choice } = await req.json();
+  try {
+    const body = (await req.json()) as { choice?: string };
+    const choice = body?.choice as keyof Counts | undefined;
 
-  if (!VALID.has(choice)) {
-    return NextResponse.json({ error: "Invalid choice" }, { status: 400 });
+    if (!choice || !VALID.has(choice)) {
+      return NextResponse.json(
+        { error: "Invalid choice" },
+        { status: 400 }
+      );
+    }
+
+    await redis.hincrby(POLL_KEY, choice, 1);
+
+    const raw = await redis.hgetall<Record<string, string> | null>(POLL_KEY);
+    const counts = normalizeCounts(raw);
+    return NextResponse.json(counts);
+  } catch (err) {
+    return NextResponse.json(
+      { error: "Failed to submit vote" },
+      { status: 500 }
+    );
   }
-
-  const store = cookies();
-  const already = store.get(VOTE_COOKIE);
-
-  // If this browser already has the vote cookie, don't increment again
-  if (already) {
-    const counts = normalizeCounts(await redis.hgetall(POLL_KEY));
-    return NextResponse.json({ ...counts, alreadyVoted: true }, { status: 409 });
-  }
-
-  await redis.hincrby(POLL_KEY, choice, 1);
-
-  const counts = normalizeCounts(await redis.hgetall(POLL_KEY));
-  const res = NextResponse.json(counts);
-
-  // Set a long-lived cookie so this browser can't vote again
-  res.cookies.set(VOTE_COOKIE, "1", {
-    httpOnly: true,
-    sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 365, // 1 year
-  });
-
-  return res;
 }
