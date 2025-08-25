@@ -11,9 +11,9 @@ export default function PollsPage() {
   const question = "Do you support the new parks initiative?";
 
   async function loadCounts() {
-    const res = await fetch("/polls", { cache: "no-store" });
+    const res = await fetch("/api/polls", { cache: "no-store" });
     const data = await res.json();
-    setCounts(data.counts);
+    setCounts(data);
   }
 
   useEffect(() => {
@@ -24,13 +24,13 @@ export default function PollsPage() {
     setLoading(true);
     setChoice(opt);
     try {
-      const res = await fetch("/polls", {
+      const res = await fetch("/api/polls", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ choice: opt }),
       });
       const data = await res.json();
-      setCounts(data.counts);
+      setCounts(data);
     } finally {
       setLoading(false);
     }
@@ -75,7 +75,7 @@ export default function PollsPage() {
       </div>
 
       <p style={{ fontSize: 12, color: "#777", marginTop: 16 }}>
-        (This page fetches `/polls` for counts and posts votes to the same path.)
+        (This page fetches `/api/polls` for counts and posts votes to the same path.)
       </p>
     </div>
   );
