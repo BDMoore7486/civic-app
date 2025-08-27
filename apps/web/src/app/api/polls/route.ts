@@ -19,6 +19,8 @@ function normalizeCounts(c: Record<string, string> | null): Counts {
 
 export async function GET() {
   try {
+    // ❌ do NOT use hgetall<T>() here
+    // ✅ call without generic and cast the result
     const raw = (await redis.hgetall(POLL_KEY)) as Record<string, string> | null;
     const counts = normalizeCounts(raw);
     return NextResponse.json(counts);
@@ -38,6 +40,7 @@ export async function POST(req: Request) {
 
     await redis.hincrby(POLL_KEY, choice, 1);
 
+    // Same fix here
     const raw = (await redis.hgetall(POLL_KEY)) as Record<string, string> | null;
     const counts = normalizeCounts(raw);
     return NextResponse.json(counts);
