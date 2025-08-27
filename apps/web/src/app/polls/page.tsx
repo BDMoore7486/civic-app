@@ -1,4 +1,4 @@
-// apps/web/src/app/polls/page.tsx
+// src/app/polls/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -10,19 +10,8 @@ export default function PollsPage() {
   const [counts, setCounts] = useState<Counts | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasVoted, setHasVoted] = useState(false);
 
   const question = "Do you support the new parks initiative?";
-
-  function total(c: Counts | null) {
-    if (!c) return 0;
-    return (c.Yes ?? 0) + (c.No ?? 0) + (c.Unsure ?? 0);
-  }
-
-  function pct(n: number, t: number) {
-    if (!t) return 0;
-    return Math.round((n / t) * 100);
-  }
 
   async function loadCounts() {
     try {
@@ -31,23 +20,16 @@ export default function PollsPage() {
       if (!res.ok) throw new Error(`GET /api/polls failed (${res.status})`);
       const data: Counts = await res.json();
       setCounts(data);
-    } catch (e: any) {
-      setError(e?.message || "Failed to load counts");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load counts");
     }
   }
 
   useEffect(() => {
-    // Soft client hint so buttons start disabled if we’ve already voted
-    setHasVoted(document.cookie.includes("parks_voted="));
     loadCounts();
   }, []);
 
   async function vote(opt: string) {
-    if (hasVoted) {
-      setError("You’ve already voted on this poll.");
-      return;
-    }
-
     setLoading(true);
     setChoice(opt);
     try {
@@ -57,32 +39,15 @@ export default function PollsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ choice: opt }),
       });
-
-      const data = await res.json();
-
-      if (res.status === 409) {
-        // Server says you already voted — reflect that in the UI
-        setHasVoted(true);
-        setError("You’ve already voted on this poll.");
-        setCounts({
-          Yes: data.Yes ?? 0,
-          No: data.No ?? 0,
-          Unsure: data.Unsure ?? 0,
-        });
-        return;
-      }
-
       if (!res.ok) throw new Error(`POST /api/polls failed (${res.status})`);
-      setCounts(data as Counts);
-      setHasVoted(true); // we’ll also get the server cookie
-    } catch (e: any) {
-      setError(e?.message || "Failed to submit vote");
+      const data: Counts = await res.json();
+      setCounts(data);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to submit vote");
     } finally {
       setLoading(false);
     }
   }
-
-  const t = total(counts);
 
   return (
     <div
@@ -101,16 +66,15 @@ export default function PollsPage() {
           <button
             key={opt}
             onClick={() => vote(opt)}
-            disabled={loading || hasVoted}
-            title={hasVoted ? "You already voted" : ""}
+            disabled={loading}
             style={{
               padding: "10px 14px",
               borderRadius: 8,
               border: "1px solid #ccc",
               background: choice === opt ? "#e3f2fd" : "#fff",
               color: choice === opt ? "#0366d6" : "#111",
-              cursor: loading || hasVoted ? "not-allowed" : "pointer",
-              opacity: loading || hasVoted ? 0.7 : 1,
+              cursor: loading ? "not-allowed" : "pointer",
+              opacity: loading ? 0.7 : 1,
             }}
           >
             {opt}
@@ -119,31 +83,22 @@ export default function PollsPage() {
       </div>
 
       {choice && (
-        <p style={{ marginTop: 8 }}>
+        <p style={{ marginTop: 12 }}>
           You chose: <strong>{choice}</strong>
         </p>
       )}
 
       {error && (
-        <p style={{ color: "crimson", marginTop: 8 }}>
+        <p style={{ color: "crimson", marginTop: 12 }}>
           {error}
         </p>
       )}
 
-      <div style={{ marginTop: 16, fontSize: 14, lineHeight: 1.6 }}>
+      <div style={{ marginTop: 16, fontSize: 14 }}>
         <strong>Current totals</strong>
-        <div>
-          Yes: {counts?.Yes ?? 0} {t ? `(${pct(counts?.Yes ?? 0, t)}%)` : ""}
-        </div>
-        <div>
-          No: {counts?.No ?? 0} {t ? `(${pct(counts?.No ?? 0, t)}%)` : ""}
-        </div>
-        <div>
-          Unsure: {counts?.Unsure ?? 0} {t ? `(${pct(counts?.Unsure ?? 0, t)}%)` : ""}
-        </div>
-        <div style={{ color: "#666", marginTop: 6 }}>
-          Total votes: {t}
-        </div>
+        <div>Yes: {counts?.Yes ?? 0}</div>
+        <div>No: {counts?.No ?? 0}</div>
+        <div>Unsure: {counts?.Unsure ?? 0}</div>
       </div>
 
       <p style={{ fontSize: 12, color: "#777", marginTop: 16 }}>
