@@ -1,9 +1,6 @@
-// apps/web/src/app/api/health/route.ts
-import { NextResponse } from "next/server";
+import { Redis } from "@upstash/redis";
+export const redis = new Redis({
+  url: process.env.KV_REST_API_URL!,
+  token: process.env.KV_REST_API_TOKEN!,
+});
 
-export async function GET() {
-  return NextResponse.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-  });
-}
