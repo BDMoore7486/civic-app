@@ -30,24 +30,39 @@ export default function PollsPage() {
   }, []);
 
   async function vote(opt: string) {
-    setLoading(true);
-    setChoice(opt);
-    try {
-      setError(null);
-      const res = await fetch("/api/polls", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ choice: opt }),
-      });
-      if (!res.ok) throw new Error(`POST /api/polls failed (${res.status})`);
-      const data: Counts = await res.json();
-      setCounts(data);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to submit vote");
-    } finally {
-      setLoading(false);
+  setLoading(true);
+  setChoice(opt);
+  try {
+    setError(null);
+    const res = await fetch("/api/polls", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ choice: opt }),
+    });
+
+    // NEW: catch duplicate vote response
+    if (res.status === 409) {
+      const data = await res.json();
+      setCounts(data.counts);
+      setError("You already voted.");
+      return;
     }
+
+    if (!res.ok) throw new Error(`POST /api/polls failed (${res.status})`);
+
+    const data: Counts = await res.json();
+    setCounts(data);
+  } catch (e: unknown) {
+    if (e instanceof Error) {
+      setError(e.message);
+    } else {
+      setError("Failed to submit vote");
+    }
+  } finally {
+    setLoading(false);
   }
+}
+
 
   return (
     <div
