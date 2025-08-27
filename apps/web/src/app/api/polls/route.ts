@@ -1,7 +1,5 @@
 // src/app/api/polls/route.ts
 import { NextResponse } from "next/server";
-// NOTE: your repo layout is src/app/api/polls/route.ts -> src/lib/redis.ts
-// so we need to go up THREE levels:
 import { redis } from "../../../lib/redis";
 
 type Counts = { Yes: number; No: number; Unsure: number };
@@ -9,7 +7,6 @@ type Counts = { Yes: number; No: number; Unsure: number };
 const POLL_KEY = "poll:parks";
 const VALID = new Set<keyof Counts>(["Yes", "No", "Unsure"]);
 
-// Upstash returns Record<string, string> | null
 function normalizeCounts(c: Record<string, string> | null): Counts {
   const base: Counts = { Yes: 0, No: 0, Unsure: 0 };
   if (!c) return base;
@@ -22,7 +19,7 @@ function normalizeCounts(c: Record<string, string> | null): Counts {
 
 export async function GET() {
   try {
-    const raw = await redis.hgetall<Record<string, string> | null>(POLL_KEY);
+    const raw = (await redis.hgetall(POLL_KEY)) as Record<string, string> | null;
     const counts = normalizeCounts(raw);
     return NextResponse.json(counts);
   } catch {
@@ -41,7 +38,7 @@ export async function POST(req: Request) {
 
     await redis.hincrby(POLL_KEY, choice, 1);
 
-    const raw = await redis.hgetall<Record<string, string> | null>(POLL_KEY);
+    const raw = (await redis.hgetall(POLL_KEY)) as Record<string, string> | null;
     const counts = normalizeCounts(raw);
     return NextResponse.json(counts);
   } catch {
