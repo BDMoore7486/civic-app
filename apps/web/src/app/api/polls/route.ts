@@ -1,14 +1,15 @@
 // src/app/api/polls/route.ts
 import { NextResponse } from "next/server";
-import { redis } from "../../lib/redis";
+// NOTE: your repo layout is src/app/api/polls/route.ts -> src/lib/redis.ts
+// so we need to go up THREE levels:
+import { redis } from "../../../lib/redis";
 
 type Counts = { Yes: number; No: number; Unsure: number };
 
 const POLL_KEY = "poll:parks";
 const VALID = new Set<keyof Counts>(["Yes", "No", "Unsure"]);
 
-// Upstash Redis hgetall returns `Record<string, string> | null`.
-// Convert that to our strongly-typed Counts object.
+// Upstash returns Record<string, string> | null
 function normalizeCounts(c: Record<string, string> | null): Counts {
   const base: Counts = { Yes: 0, No: 0, Unsure: 0 };
   if (!c) return base;
@@ -24,11 +25,8 @@ export async function GET() {
     const raw = await redis.hgetall<Record<string, string> | null>(POLL_KEY);
     const counts = normalizeCounts(raw);
     return NextResponse.json(counts);
-  } catch (err) {
-    return NextResponse.json(
-      { error: "Failed to load counts" },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({ error: "Failed to load counts" }, { status: 500 });
   }
 }
 
@@ -38,10 +36,7 @@ export async function POST(req: Request) {
     const choice = body?.choice as keyof Counts | undefined;
 
     if (!choice || !VALID.has(choice)) {
-      return NextResponse.json(
-        { error: "Invalid choice" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid choice" }, { status: 400 });
     }
 
     await redis.hincrby(POLL_KEY, choice, 1);
@@ -49,10 +44,7 @@ export async function POST(req: Request) {
     const raw = await redis.hgetall<Record<string, string> | null>(POLL_KEY);
     const counts = normalizeCounts(raw);
     return NextResponse.json(counts);
-  } catch (err) {
-    return NextResponse.json(
-      { error: "Failed to submit vote" },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({ error: "Failed to submit vote" }, { status: 500 });
   }
 }
