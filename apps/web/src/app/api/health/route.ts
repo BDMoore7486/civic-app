@@ -1,13 +1,11 @@
 // apps/web/src/app/api/health/route.ts
 import { NextResponse } from "next/server";
-import { redis } from "@/lib/redis"; // adjust alias if needed, e.g. "../../../lib/redis"
+import { redis } from "@/lib/redis"; // if your alias isn't configured, use: "../../../lib/redis"
 
-/**
- * Health endpoint:
- * - Always returns 200 with `status: "ok"` or `"degraded"`
- * - Includes Redis check result + latency
- * - Keeps your app "up" even if Redis is temporarily unavailable
- */
+type PingCapable = {
+  ping?: () => Promise<string | boolean>;
+};
+
 export async function GET() {
   const nowIso = new Date().toISOString();
 
@@ -16,38 +14,34 @@ export async function GET() {
   let redisError: string | null = null;
 
   try {
-    const t0 = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+    const t0 =
+      typeof performance !== "undefined" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
 
-    // Prefer a cheap PING if available; otherwise fall back to SET/GET with a 5s TTL
-    try {
-      // Some versions of @upstash/redis support ping()
-      // @ts-expect-error - ping may not be typed on older versions
-      const pong = await redis.ping?.();
-      if (pong) {
-        redisOk = String(pong).toUpperCase() === "PONG" || pong === true;
-      } else {
-        // Fallback: SET/GET round-trip
-        const key = `health:check:${Math.random().toString(36).slice(2)}`;
-        await redis.set(key, "1", { ex: 5 });
-        const val = await redis.get<string>(key);
-        redisOk = val === "1";
-      }
-    } catch {
-      // If ping failed, try the fallback anyway
+    // Try ping() if the client exposes it; otherwise fall back to a SET/GET round-trip.
+    const maybePing = (redis as unknown as PingCapable).ping;
+
+    if (typeof maybePing === "function") {
+      const pong = await maybePing();
+      redisOk = String(pong).toUpperCase() === "PONG" || pong === true;
+    } else {
       const key = `health:check:${Math.random().toString(36).slice(2)}`;
       await redis.set(key, "1", { ex: 5 });
       const val = await redis.get<string>(key);
       redisOk = val === "1";
     }
 
-    const t1 = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+    const t1 =
+      typeof performance !== "undefined" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
     redisLatencyMs = Math.round(t1 - t0);
-  } catch (err: unknown) {
+  } catch (err) {
     redisOk = false;
     redisError = err instanceof Error ? err.message : "Unknown Redis error";
   }
 
-  // Overall status – keep 200 so uptime monitors don’t mark the site down just because Redis hiccupped.
   const overall = redisOk ? "ok" : "degraded";
 
   return NextResponse.json({
