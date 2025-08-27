@@ -1,14 +1,16 @@
+// apps/web/src/app/api/polls/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { redis } from "../../../lib/redis";
 
 const POLL_KEY = "poll:parks";
-const VOTERS_KEY = "poll:parks:voters";
+const COOKIE_NAME = "voted_parks"; // marks that this browser already voted
 
 type Counts = { Yes: number; No: number; Unsure: number };
-type RawCounts = Record<string, string> | null;
+type RawMap = Record<string, string>;
 
-function normalize(raw: RawCounts): Counts {
+/** Convert Upstash hash map into the shape the UI expects. */
+function normalize(raw: RawMap | null): Counts {
   return {
     Yes: Number(raw?.Yes ?? 0),
     No: Number(raw?.No ?? 0),
@@ -17,56 +19,45 @@ function normalize(raw: RawCounts): Counts {
 }
 
 export async function GET() {
-  const raw = await redis.hgetall<RawCounts>(POLL_KEY);
-  return NextResponse.json(normalize(raw));
+  // NOTE: the generic must be a non-null Record
+  const raw = await redis.hgetall<RawMap>(POLL_KEY);
+  return NextResponse.json(normalize(raw ?? null));
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as { choice: keyof Counts };
-  const choice = body?.choice;
+  try {
+    const body = (await req.json()) as { choice?: string };
+    const choice = body.choice;
 
-  if (!["Yes", "No", "Unsure"].includes(String(choice))) {
-    return NextResponse.json({ error: "Invalid choice" }, { status: 400 });
-  }
+    if (!choice || !["Yes", "No", "Unsure"].includes(choice)) {
+      return NextResponse.json({ error: "Invalid choice" }, { status: 400 });
+    }
 
-  // 1) Identify voter by cookie
-  const jar = cookies();
-  let voterId = jar.get("voter_id")?.value;
-  let setCookie = false;
-  if (!voterId) {
-    voterId = crypto.randomUUID();
-    setCookie = true;
-  }
+    const jar = await cookies();
+    const already = jar.get(COOKIE_NAME)?.value === "1";
 
-  // 2) Allow exactly one vote per voterId
-  // SADD returns 1 if added (first vote), 0 if already present (duplicate)
-  const added = await redis.sadd(VOTERS_KEY, voterId);
-  if (added === 0) {
-    const raw = await redis.hgetall<RawCounts>(POLL_KEY);
-    return NextResponse.json(
-      { error: "Already voted", counts: normalize(raw) },
-      { status: 409 }
-    );
-  }
+    // always send back current counts
+    const current = normalize((await redis.hgetall<RawMap>(POLL_KEY)) ?? null);
 
-  // 3) Count the vote
-  await redis.hincrby(POLL_KEY, choice, 1);
+    if (already) {
+      // Client can show “You already voted.”
+      return NextResponse.json({ counts: current }, { status: 409 });
+    }
 
-  const raw = await redis.hgetall<RawCounts>(POLL_KEY);
-  const res = NextResponse.json(normalize(raw));
+    // First vote from this browser: increment and set cookie
+    await redis.hincrby(POLL_KEY, choice, 1);
 
-  // 4) Set voter cookie so the next request is recognized
-  if (setCookie) {
-    res.cookies.set({
-      name: "voter_id",
-      value: voterId,
+    jar.set(COOKIE_NAME, "1", {
       httpOnly: true,
-      secure: true,
       sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 365, // 1 year
+      secure: true,
       path: "/",
+      maxAge: 60 * 60 * 24 * 365, // 1 year
     });
-  }
 
-  return res;
+    const after = normalize((await redis.hgetall<RawMap>(POLL_KEY)) ?? null);
+    return NextResponse.json(after);
+  } catch {
+    return NextResponse.json({ error: "Bad request" }, { status: 400 });
+  }
 }
