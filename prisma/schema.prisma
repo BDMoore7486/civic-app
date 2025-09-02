@@ -1,0 +1,39 @@
+// apps/web/prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model PollQuestion {
+  id          String         @id @default(cuid())
+  question    String
+  issueTag    String?        // optional categorization
+  activeFrom  DateTime?
+  activeTo    DateTime?
+  createdAt   DateTime       @default(now())
+
+  responses   PollResponse[]
+}
+
+model PollResponse {
+  id          String     @id @default(cuid())
+  pollId      String
+  choice      String
+
+  // Optional lightweight privacy fields (no raw IPs, no PII)
+  ipHash      String?
+  districtId  String?
+  stateCode   String?
+
+  respondedAt DateTime   @default(now())
+
+  poll        PollQuestion @relation(fields: [pollId], references: [id])
+
+  @@index([pollId])
+  @@index([pollId, stateCode])
+}
+
