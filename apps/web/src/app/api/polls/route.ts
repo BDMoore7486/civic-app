@@ -1,4 +1,6 @@
 // apps/web/src/app/api/polls/route.ts
+import crypto from "node:crypto";
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { redis } from "../../../lib/redis";
@@ -18,13 +20,25 @@ function normalize(raw: RawMap | null): Counts {
   };
 }
 
+/** Hash a caller’s best-effort identity (IP + UA) without storing raw IP. */
+function ipFingerprint(req: NextRequest): string {
+  // Prefer standard proxy headers if present (Vercel/edge/CDN aware)
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    "0.0.0.0";
+
+  const ua = req.headers.get("user-agent") || "unknown";
+  const raw = `${ip}::${ua}`;
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
 export async function GET() {
-  // NOTE: the generic must be a non-null Record
   const raw = await redis.hgetall<RawMap>(POLL_KEY);
   return NextResponse.json(normalize(raw ?? null));
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as { choice?: string };
     const choice = body.choice;
@@ -33,18 +47,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid choice" }, { status: 400 });
     }
 
-    const jar = await cookies();
-    const already = jar.get(COOKIE_NAME)?.value === "1";
+    // --- soft IP-based lock (24h) + cookie check ---
+    const ipHash = ipFingerprint(req);
+    const ipLockKey = `poll:parks:ip:${ipHash}`;
 
-    // always send back current counts
+    // Try to set a one-day lock if it doesn’t exist yet (NX)
+    // If it returns null, the key already existed => repeat voter
+    const setRes = await redis.set(ipLockKey, "1", { nx: true, ex: 60 * 60 * 24 });
+
+    const jar = await cookies();
+    const alreadyViaCookie = jar.get(COOKIE_NAME)?.value === "1";
+
+    // Always send back current counts
     const current = normalize((await redis.hgetall<RawMap>(POLL_KEY)) ?? null);
 
-    if (already) {
-      // Client can show “You already voted.”
+    if (alreadyViaCookie || setRes === null) {
+      // “You already voted” — either cookie present or IP lock already existed
       return NextResponse.json({ counts: current }, { status: 409 });
     }
+    // ------------------------------------------------
 
-    // First vote from this browser: increment and set cookie
+    // First vote from this browser/IP in the last 24h: increment and set cookie
     await redis.hincrby(POLL_KEY, choice, 1);
 
     jar.set(COOKIE_NAME, "1", {
