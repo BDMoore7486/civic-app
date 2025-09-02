@@ -1,10 +1,68 @@
+// src/app/polls/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+type Counts = { Yes: number; No: number; Unsure: number };
 
 export default function PollsPage() {
   const [choice, setChoice] = useState<string | null>(null);
+  const [counts, setCounts] = useState<Counts | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const question = "Do you support the new parks initiative?";
+
+  async function loadCounts() {
+    try {
+      setError(null);
+      const res = await fetch("/api/polls", { cache: "no-store" });
+      if (!res.ok) throw new Error(`GET /api/polls failed (${res.status})`);
+      const data: Counts = await res.json();
+      setCounts(data);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load counts");
+    }
+  }
+
+  useEffect(() => {
+    loadCounts();
+  }, []);
+
+  async function vote(opt: string) {
+  setLoading(true);
+  setChoice(opt);
+  try {
+    setError(null);
+    const res = await fetch("/api/polls", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ choice: opt }),
+    });
+
+    // NEW: catch duplicate vote response
+    if (res.status === 409) {
+      const data = await res.json();
+      setCounts(data.counts);
+      setError("You already voted.");
+      return;
+    }
+
+    if (!res.ok) throw new Error(`POST /api/polls failed (${res.status})`);
+
+    const data: Counts = await res.json();
+    setCounts(data);
+  } catch (e: unknown) {
+    if (e instanceof Error) {
+      setError(e.message);
+    } else {
+      setError("Failed to submit vote");
+    }
+  } finally {
+    setLoading(false);
+  }
+}
+
 
   return (
     <div
@@ -22,14 +80,16 @@ export default function PollsPage() {
         {["Yes", "No", "Unsure"].map((opt) => (
           <button
             key={opt}
-            onClick={() => setChoice(opt)}
+            onClick={() => vote(opt)}
+            disabled={loading}
             style={{
               padding: "10px 14px",
               borderRadius: 8,
               border: "1px solid #ccc",
               background: choice === opt ? "#e3f2fd" : "#fff",
               color: choice === opt ? "#0366d6" : "#111",
-              cursor: "pointer",
+              cursor: loading ? "not-allowed" : "pointer",
+              opacity: loading ? 0.7 : 1,
             }}
           >
             {opt}
@@ -43,8 +103,21 @@ export default function PollsPage() {
         </p>
       )}
 
+      {error && (
+        <p style={{ color: "crimson", marginTop: 12 }}>
+          {error}
+        </p>
+      )}
+
+      <div style={{ marginTop: 16, fontSize: 14 }}>
+        <strong>Current totals</strong>
+        <div>Yes: {counts?.Yes ?? 0}</div>
+        <div>No: {counts?.No ?? 0}</div>
+        <div>Unsure: {counts?.Unsure ?? 0}</div>
+      </div>
+
       <p style={{ fontSize: 12, color: "#777", marginTop: 16 }}>
-        Next: we’ll hook this up to an API route and a database so results persist.
+        (This page fetches <code>/api/polls</code> for counts and posts votes to the same path.)
       </p>
     </div>
   );
