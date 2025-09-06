@@ -1,0 +1,82 @@
+// apps/web/prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model PollQuestion {
+  id          String         @id @default(cuid())
+  question    String
+  issueTag    String?        // optional categorization
+  activeFrom  DateTime?
+  activeTo    DateTime?
+  createdAt   DateTime       @default(now())
+
+  responses   PollResponse[]
+}
+
+model PollResponse {
+  id          String     @id @default(cuid())
+  pollId      String
+  choice      String
+
+  // Optional lightweight privacy fields (no raw IPs, no PII)
+  ipHash      String?
+  districtId  String?
+  stateCode   String?
+
+  respondedAt DateTime   @default(now())
+
+  poll        PollQuestion @relation(fields: [pollId], references: [id])
+
+  @@index([pollId])
+  @@index([pollId, stateCode])
+}
+
+// --- NEW TABLES for Hypocrisy (Agenda vs Action) ---
+model Official {
+  id          String   @id
+  name        String
+  chamber     String   // e.g. "House" | "Senate"
+  party       String?  // optional
+  districtId  String?  // optional
+  photoUrl    String?  // optional
+  websiteUrl  String?  // optional
+
+  agendaItems AgendaItem[]
+  votes       Vote[]
+}
+
+model AgendaItem {
+  id         String   @id @default(cuid())
+  officialId String
+  // super simple encoding for demo:
+  // “supports” or “opposes” + an issue tag
+  position   String   // 'support' | 'oppose'
+  issueTag   String
+  quotedAt   DateTime @default(now())
+  sourceUrl  String?
+
+  official   Official @relation(fields: [officialId], references: [id])
+  @@index([officialId])
+  @@index([issueTag])
+}
+
+model Vote {
+  id         String   @id @default(cuid())
+  officialId String
+  billCode   String   // e.g. "HR1234"
+  issueTag   String
+  position   String   // 'yes' | 'no'
+  voteDate   DateTime
+  sourceUrl  String?
+
+  official   Official @relation(fields: [officialId], references: [id])
+
+  @@index([officialId])
+  @@index([issueTag])
+}
